@@ -1,7 +1,8 @@
 from numpy.random import seed
 seed(12345)
-from tensorflow import set_random_seed
-set_random_seed(1234)
+import tensorflow as tf
+from tensorflow.random import set_seed
+set_seed(1234)
 import os
 import random
 import numpy as np
@@ -50,8 +51,11 @@ def goTrain():
   callbacks_list = [checkpoint, logging]
   print("data prepared, ready to train!")
   # Fit the model
-  history=model.fit_generator(generator=train_generator,
-  validation_data=valid_generator,epochs=100,callbacks=callbacks_list,verbose=1)
+  history = model.fit(x=train_generator,
+          validation_data=valid_generator,
+          epochs=100,
+          callbacks=callbacks_list,
+          verbose=1)
   model.save('check1/fseg.hdf5')
   showHistory(history)
 
@@ -90,27 +94,27 @@ class TrainValTensorBoard(TensorBoard):
         super(TrainValTensorBoard, self).__init__(training_log_dir, **kwargs)
         # Log the validation metrics to a separate subdirectory
         self.val_log_dir = os.path.join(log_dir, 'validation')
+
     def set_model(self, model):
         # Setup writer for validation metrics
-        self.val_writer = tf.summary.FileWriter(self.val_log_dir)
+        self.writer = tf.summary.create_file_writer(self.val_log_dir)
         super(TrainValTensorBoard, self).set_model(model)
+
     def on_epoch_end(self, epoch, logs=None):
         # Pop the validation logs and handle them separately with
-        # `self.val_writer`. Also rename the keys so that they can
+        # `self.writer`. Also rename the keys so that they can
         # be plotted on the same figure with the training metrics
         logs = logs or {}
         val_logs = {k.replace('val_', ''): v for k, v in logs.items() if k.startswith('val_')}
-        for name, value in val_logs.items():
-            summary = tf.Summary()
-            summary_value = summary.value.add()
-            summary_value.simple_value = value.item()
-            summary_value.tag = name
-            self.val_writer.add_summary(summary, epoch)
-        self.val_writer.flush()
+        with self.writer.as_default():
+            for name, value in val_logs.items():
+                tf.summary.scalar(name, value, step=epoch)
+            self.writer.flush()
         # Pass the remaining logs to `TensorBoard.on_epoch_end`
         logs = {k: v for k, v in logs.items() if not k.startswith('val_')}
         logs.update({'lr': keras.eval(self.model.optimizer.lr)})
         super(TrainValTensorBoard, self).on_epoch_end(epoch, logs)
+
     def on_train_end(self, logs=None):
         super(TrainValTensorBoard, self).on_train_end(logs)
         self.val_writer.close()
